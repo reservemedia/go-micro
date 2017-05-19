@@ -47,6 +47,8 @@ type CallOptions struct {
 	Retry RetryFunc
 	// Transport Dial Timeout
 	DialTimeout time.Duration
+	// Transport proxy setting
+	DialProxy string
 	// Number of Call attempts
 	Retries int
 	// Request/Response timeout
@@ -225,6 +227,13 @@ func DialTimeout(d time.Duration) Option {
 	}
 }
 
+// Transport dial proxy
+func DialProxy(addr string) Option {
+	return func(o *Options) {
+		o.CallOptions.DialProxy = addr
+	}
+}
+
 // Call Options
 
 func WithSelectOption(so ...selector.SelectOption) CallOption {
@@ -277,6 +286,14 @@ func WithRequestTimeout(d time.Duration) CallOption {
 func WithDialTimeout(d time.Duration) CallOption {
 	return func(o *CallOptions) {
 		o.DialTimeout = d
+	}
+}
+
+// WithDialProxy is a CallOption which overrides that which
+// set in Options.CallOptions.
+func WithDialProxy(addr string) CallOption {
+	return func(o *CallOptions) {
+		o.DialProxy = addr
 	}
 }
 

@@ -338,6 +338,10 @@ func (h *httpTransport) Dial(addr string, opts ...DialOption) (Client, error) {
 		opt(&dopts)
 	}
 
+	if dopts.Proxy == "" {
+		dopts.Proxy = addr
+	}
+
 	var conn net.Conn
 	var err error
 
@@ -349,9 +353,9 @@ func (h *httpTransport) Dial(addr string, opts ...DialOption) (Client, error) {
 				InsecureSkipVerify: true,
 			}
 		}
-		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: dopts.Timeout}, "tcp", addr, config)
+		conn, err = tls.DialWithDialer(&net.Dialer{Timeout: dopts.Timeout}, "tcp", dopts.Proxy, config)
 	} else {
-		conn, err = net.DialTimeout("tcp", addr, dopts.Timeout)
+		conn, err = net.DialTimeout("tcp", dopts.Proxy, dopts.Timeout)
 	}
 
 	if err != nil {
