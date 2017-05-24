@@ -23,6 +23,7 @@ type Options struct {
 type DialOptions struct {
 	Stream  bool
 	Timeout time.Duration
+	Proxy   string
 
 	// TODO: add tls options when dialling
 	// Currently set in global options
@@ -89,5 +90,12 @@ func WithStream() DialOption {
 func WithTimeout(d time.Duration) DialOption {
 	return func(o *DialOptions) {
 		o.Timeout = d
+	}
+}
+
+// WithProxy specifies the proxy address to be used.
+func WithProxy(addr string) DialOption {
+	return func(o *DialOptions) {
+		o.Proxy = addr
 	}
 }
