@@ -80,7 +80,7 @@ func (r *rpcClient) call(ctx context.Context, address string, req Request, resp 
 		transport.WithTimeout(opts.DialTimeout),
 		transport.WithProxy(opts.DialProxy))
 	if err != nil {
-		return errors.InternalServerError("go.micro.client", fmt.Sprintf("connection error: %v", err))
+		return errors.InternalServerError("go.micro.client", "connection error: %v", err)
 	}
 	defer func() {
 		// defer execution of release
@@ -100,7 +100,7 @@ func (r *rpcClient) call(ctx context.Context, address string, req Request, resp 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				ch <- errors.InternalServerError("go.micro.client", fmt.Sprintf("panic recovered: %v", r))
+				ch <- errors.InternalServerError("go.micro.client", "panic recovered: %v", r)
 			}
 		}()
 
@@ -160,7 +160,7 @@ func (r *rpcClient) stream(ctx context.Context, address string, req Request, opt
 		transport.WithProxy(opts.DialProxy))
 
 	if err != nil {
-		return nil, errors.InternalServerError("go.micro.client", fmt.Sprintf("connection error: %v", err))
+		return nil, errors.InternalServerError("go.micro.client", "connection error: %v", err)
 	}
 
 	stream := &rpcStream{

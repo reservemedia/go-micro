@@ -30,6 +30,8 @@ type rpcServer struct {
 	subscribers map[*subscriber][]broker.Subscriber
 	// used for first registration
 	registered bool
+	// graceful exit
+	wg sync.WaitGroup
 }
 
 func newRpcServer(opts ...Option) Server {
@@ -99,6 +101,10 @@ func (s *rpcServer) accept(sock transport.Socket) {
 				ctx, _ = context.WithTimeout(ctx, time.Duration(n))
 			}
 		}
+
+		// add to wait group
+		s.wg.Add(1)
+		defer s.wg.Done()
 
 		// TODO: needs better error handling
 		if err := s.rpc.serveRequest(ctx, codec, ct); err != nil {
@@ -371,8 +377,18 @@ func (s *rpcServer) Start() error {
 	go ts.Accept(s.accept)
 
 	go func() {
+		// wait for exit
 		ch := <-s.exit
+
+		// wait for requests to finish
+		if wait(s.opts.Context) {
+			s.wg.Wait()
+		}
+
+		// close transport listener
 		ch <- ts.Close()
+
+		// disconnect the broker
 		config.Broker.Disconnect()
 	}()
 
