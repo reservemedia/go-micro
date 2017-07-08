@@ -275,7 +275,7 @@ func (h *httpBroker) stop() error {
 }
 
 func (h *httpBroker) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	if req.Method != "POST" {
+	if req.Method != "POST" || req.Method != "PUT" {
 		err := errors.BadRequest("go.micro.broker", "Method not allowed")
 		http.Error(w, err.Error(), http.StatusMethodNotAllowed)
 		return

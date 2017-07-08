@@ -73,7 +73,7 @@ func (h *httpTransportClient) Send(m *Message) error {
 	}
 
 	req := &http.Request{
-		Method: "POST",
+		Method: "PUT",
 		URL: &url.URL{
 			Scheme: "http",
 			Host:   h.addr,
