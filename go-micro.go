@@ -45,7 +45,7 @@ var (
 	HeaderPrefix = "X-Micro-"
 )
 
-// NewService creates an returns a new Service based on the packages within.
+// NewService creates and returns a new Service based on the packages within.
 func NewService(opts ...Option) Service {
 	return newService(opts...)
 }
@@ -81,5 +81,5 @@ func RegisterHandler(s server.Server, h interface{}, opts ...server.HandlerOptio
 
 // RegisterSubscriber is syntactic sugar for registering a subscriber
 func RegisterSubscriber(topic string, s server.Server, h interface{}, opts ...server.SubscriberOption) error {
-	return s.Subscribe(s.NewSubscriber(topic, h))
+	return s.Subscribe(s.NewSubscriber(topic, h, opts...))
 }

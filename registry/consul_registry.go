@@ -59,6 +59,9 @@ func newConsulRegistry(opts ...Option) Registry {
 			config = c
 		}
 	}
+	if config.HttpClient == nil {
+		config.HttpClient = new(http.Client)
+	}
 
 	// set timeout
 	if options.Timeout > 0 {
