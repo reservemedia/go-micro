@@ -153,6 +153,10 @@ func (m *mockPublication) Ack() error {
 	return nil
 }
 
+func (m *mockPublication) Nack() error {
+	return nil
+}
+
 func (m *mockSubscriber) Options() broker.SubscribeOptions {
 	return m.opts
 }
