@@ -30,6 +30,7 @@ type Publication interface {
 	Topic() string
 	Message() *Message
 	Ack() error
+	Nack() error
 }
 
 // Subscriber is a convenience return type for the Subscribe method

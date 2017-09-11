@@ -136,6 +136,10 @@ func (h *httpPublication) Ack() error {
 	return nil
 }
 
+func (h *httpPublication) Nack() error {
+	return nil
+}
+
 func (h *httpPublication) Message() *Message {
 	return h.m
 }
