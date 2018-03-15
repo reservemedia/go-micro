@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 	"sort"
@@ -17,8 +18,6 @@ import (
 	"github.com/micro/go-micro/transport"
 
 	"github.com/micro/misc/lib/addr"
-
-	"golang.org/x/net/context"
 )
 
 type rpcServer struct {
@@ -182,12 +181,12 @@ func (s *rpcServer) Subscribe(sb Subscriber) error {
 	}
 
 	s.Lock()
+	defer s.Unlock()
 	_, ok = s.subscribers[sub]
 	if ok {
 		return fmt.Errorf("subscriber %v already exists", s)
 	}
 	s.subscribers[sub] = nil
-	s.Unlock()
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package micro
 
 import (
+	"context"
 	"time"
 
 	"github.com/micro/cli"
@@ -11,8 +12,6 @@ import (
 	"github.com/micro/go-micro/selector"
 	"github.com/micro/go-micro/server"
 	"github.com/micro/go-micro/transport"
-
-	"golang.org/x/net/context"
 )
 
 type Options struct {
@@ -101,6 +100,13 @@ func Registry(r registry.Registry) Option {
 		o.Server.Init(server.Registry(r))
 		// Update Selector
 		o.Client.Options().Selector.Init(selector.Registry(r))
+	}
+}
+
+// Selector sets the selector for the service client
+func Selector(s selector.Selector) Option {
+	return func(o *Options) {
+		o.Client.Init(client.Selector(s))
 	}
 }
 
