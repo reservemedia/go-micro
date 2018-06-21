@@ -17,7 +17,7 @@ import (
 type consulRegistry struct {
 	Address string
 	Client  *consul.Client
-	Options Options
+	opts    Options
 
 	sync.Mutex
 	register map[string]uint64
@@ -59,14 +59,6 @@ func newConsulRegistry(opts ...Option) Registry {
 			config = c
 		}
 	}
-	if config.HttpClient == nil {
-		config.HttpClient = new(http.Client)
-	}
-
-	// set timeout
-	if options.Timeout > 0 {
-		config.HttpClient.Timeout = options.Timeout
-	}
 
 	// check if there are any addrs
 	if len(options.Addrs) > 0 {
@@ -82,6 +74,10 @@ func newConsulRegistry(opts ...Option) Registry {
 
 	// requires secure connection?
 	if options.Secure || options.TLSConfig != nil {
+		if config.HttpClient == nil {
+			config.HttpClient = new(http.Client)
+		}
+
 		config.Scheme = "https"
 		// We're going to support InsecureSkipVerify
 		config.HttpClient.Transport = newTransport(options.TLSConfig)
@@ -90,10 +86,15 @@ func newConsulRegistry(opts ...Option) Registry {
 	// create the client
 	client, _ := consul.NewClient(config)
 
+	// set timeout
+	if options.Timeout > 0 {
+		config.HttpClient.Timeout = options.Timeout
+	}
+
 	cr := &consulRegistry{
 		Address:  config.Address,
 		Client:   client,
-		Options:  options,
+		opts:     options,
 		register: make(map[string]uint64),
 	}
 
@@ -114,14 +115,37 @@ func (c *consulRegistry) Deregister(s *Service) error {
 	return c.Client.Agent().ServiceDeregister(node.Id)
 }
 
+func getDeregisterTTL(t time.Duration) time.Duration {
+	// splay slightly for the watcher?
+	splay := time.Second * 5
+	deregTTL := t + splay
+
+	// consul has a minimum timeout on deregistration of 1 minute.
+	if t < time.Minute {
+		deregTTL = time.Minute + splay
+	}
+
+	return deregTTL
+}
+
 func (c *consulRegistry) Register(s *Service, opts ...RegisterOption) error {
 	if len(s.Nodes) == 0 {
 		return errors.New("Require at least one node")
 	}
 
+	var regTCPCheck bool
+	var regInterval time.Duration
+
 	var options RegisterOptions
 	for _, o := range opts {
 		o(&options)
+	}
+
+	if c.opts.Context != nil {
+		if tcpCheckInterval, ok := c.opts.Context.Value("consul_tcp_check").(time.Duration); ok {
+			regTCPCheck = true
+			regInterval = tcpCheckInterval
+		}
 	}
 
 	// create hash of service; uint64
@@ -154,15 +178,18 @@ func (c *consulRegistry) Register(s *Service, opts ...RegisterOption) error {
 
 	var check *consul.AgentServiceCheck
 
-	// if the TTL is greater than 0 create an associated check
-	if options.TTL > time.Duration(0) {
-		// splay slightly for the watcher?
-		splay := time.Second * 5
-		deregTTL := options.TTL + splay
-		// consul has a minimum timeout on deregistration of 1 minute.
-		if options.TTL < time.Minute {
-			deregTTL = time.Minute + splay
+	if regTCPCheck {
+		deregTTL := getDeregisterTTL(regInterval)
+
+		check = &consul.AgentServiceCheck{
+			TCP:                            fmt.Sprintf("%s:%d", node.Address, node.Port),
+			Interval:                       fmt.Sprintf("%v", regInterval),
+			DeregisterCriticalServiceAfter: fmt.Sprintf("%v", deregTTL),
 		}
+
+		// if the TTL is greater than 0 create an associated check
+	} else if options.TTL > time.Duration(0) {
+		deregTTL := getDeregisterTTL(options.TTL)
 
 		check = &consul.AgentServiceCheck{
 			TTL: fmt.Sprintf("%v", options.TTL),
@@ -210,18 +237,18 @@ func (c *consulRegistry) GetService(name string) ([]*Service, error) {
 		}
 
 		// version is now a tag
-		version, found := decodeVersion(s.Service.Tags)
+		version, _ := decodeVersion(s.Service.Tags)
 		// service ID is now the node id
 		id := s.Service.ID
 		// key is always the version
 		key := version
+
 		// address is service address
 		address := s.Service.Address
 
-		// if we can't get the version we bail
-		// use old the old ways
-		if !found {
-			continue
+		// use node address
+		if len(address) == 0 {
+			address = s.Node.Address
 		}
 
 		svc, ok := serviceMap[key]
@@ -235,6 +262,7 @@ func (c *consulRegistry) GetService(name string) ([]*Service, error) {
 		}
 
 		var del bool
+
 		for _, check := range s.Checks {
 			// delete the node if the status is critical
 			if check.Status == "critical" {
@@ -278,10 +306,14 @@ func (c *consulRegistry) ListServices() ([]*Service, error) {
 	return services, nil
 }
 
-func (c *consulRegistry) Watch() (Watcher, error) {
-	return newConsulWatcher(c)
+func (c *consulRegistry) Watch(opts ...WatchOption) (Watcher, error) {
+	return newConsulWatcher(c, opts...)
 }
 
 func (c *consulRegistry) String() string {
 	return "consul"
+}
+
+func (c *consulRegistry) Options() Options {
+	return c.opts
 }

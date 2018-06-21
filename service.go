@@ -3,9 +3,12 @@ package micro
 import (
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
+	"github.com/micro/cli"
+	"github.com/micro/go-log"
 	"github.com/micro/go-micro/client"
 	"github.com/micro/go-micro/cmd"
 	"github.com/micro/go-micro/metadata"
@@ -15,7 +18,7 @@ import (
 type service struct {
 	opts Options
 
-	init chan bool
+	once sync.Once
 }
 
 func newService(opts ...Option) Service {
@@ -30,7 +33,6 @@ func newService(opts ...Option) Service {
 
 	return &service{
 		opts: options,
-		init: make(chan bool),
 	}
 }
 
@@ -44,7 +46,10 @@ func (s *service) run(exit chan bool) {
 	for {
 		select {
 		case <-t.C:
-			s.opts.Server.Register()
+			err := s.opts.Server.Register()
+			if err != nil {
+				log.Log("service run Server.Register error: ", err)
+			}
 		case <-exit:
 			t.Stop()
 			return
@@ -56,32 +61,35 @@ func (s *service) run(exit chan bool) {
 // which parses command line flags. cmd.Init is only called
 // on first Init.
 func (s *service) Init(opts ...Option) {
-	// If <-s.init blocks, Init has not been called yet
-	// so we can call cmd.Init once.
-	select {
-	case <-s.init:
-		// only process options
-		for _, o := range opts {
-			o(&s.opts)
-		}
-	default:
-		// close init
-		close(s.init)
+	// process options
+	for _, o := range opts {
+		o(&s.opts)
+	}
 
-		// process options
-		for _, o := range opts {
-			o(&s.opts)
+	s.once.Do(func() {
+		// save user action
+		action := s.opts.Cmd.App().Action
+
+		// set service action
+		s.opts.Cmd.App().Action = func(c *cli.Context) {
+			// set register interval
+			if i := time.Duration(c.GlobalInt("register_interval")); i > 0 {
+				s.opts.RegisterInterval = i * time.Second
+			}
+
+			// user action
+			action(c)
 		}
 
 		// Initialise the command flags, overriding new service
-		s.opts.Cmd.Init(
+		_ = s.opts.Cmd.Init(
 			cmd.Broker(&s.opts.Broker),
 			cmd.Registry(&s.opts.Registry),
 			cmd.Transport(&s.opts.Transport),
 			cmd.Client(&s.opts.Client),
 			cmd.Server(&s.opts.Server),
 		)
-	}
+	})
 }
 
 func (s *service) Options() Options {
@@ -160,7 +168,7 @@ func (s *service) Run() error {
 	go s.run(ex)
 
 	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGKILL)
+	signal.Notify(ch, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT)
 
 	select {
 	// wait on kill signal
@@ -172,9 +180,5 @@ func (s *service) Run() error {
 	// exit reg loop
 	close(ex)
 
-	if err := s.Stop(); err != nil {
-		return err
-	}
-
-	return nil
+	return s.Stop()
 }

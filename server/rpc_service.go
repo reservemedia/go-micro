@@ -7,6 +7,7 @@ package server
 // Meh, we need to get rid of this shit
 
 import (
+	"context"
 	"errors"
 	"io"
 	"reflect"
@@ -16,7 +17,6 @@ import (
 	"unicode/utf8"
 
 	"github.com/micro/go-log"
-	"golang.org/x/net/context"
 )
 
 var (
@@ -119,9 +119,9 @@ func prepareMethod(method reflect.Method) *methodType {
 
 	if stream {
 		// check stream type
-		streamType := reflect.TypeOf((*Streamer)(nil)).Elem()
+		streamType := reflect.TypeOf((*Stream)(nil)).Elem()
 		if !argType.Implements(streamType) {
-			log.Log(mname, "argument does not implement Streamer interface:", argType)
+			log.Log(mname, "argument does not implement Stream interface:", argType)
 			return nil
 		}
 	} else {

@@ -10,6 +10,7 @@ import (
 
 type consulWatcher struct {
 	r        *consulRegistry
+	wo       WatchOptions
 	wp       *watch.Plan
 	watchers map[string]*watch.Plan
 
@@ -20,9 +21,15 @@ type consulWatcher struct {
 	services map[string][]*Service
 }
 
-func newConsulWatcher(cr *consulRegistry) (Watcher, error) {
+func newConsulWatcher(cr *consulRegistry, opts ...WatchOption) (Watcher, error) {
+	var wo WatchOptions
+	for _, o := range opts {
+		o(&wo)
+	}
+
 	cw := &consulWatcher{
 		r:        cr,
+		wo:       wo,
 		exit:     make(chan bool),
 		next:     make(chan *Result, 10),
 		watchers: make(map[string]*watch.Plan),
@@ -53,7 +60,7 @@ func (cw *consulWatcher) serviceHandler(idx uint64, data interface{}) {
 	for _, e := range entries {
 		serviceName = e.Service.Service
 		// version is now a tag
-		version, found := decodeVersion(e.Service.Tags)
+		version, _ := decodeVersion(e.Service.Tags)
 		// service ID is now the node id
 		id := e.Service.ID
 		// key is always the version
@@ -61,9 +68,9 @@ func (cw *consulWatcher) serviceHandler(idx uint64, data interface{}) {
 		// address is service address
 		address := e.Service.Address
 
-		// if we can't get the version we bail
-		if !found {
-			continue
+		// use node address
+		if len(address) == 0 {
+			address = e.Node.Address
 		}
 
 		svc, ok := serviceMap[key]
@@ -185,6 +192,12 @@ func (cw *consulWatcher) handle(idx uint64, data interface{}) {
 
 	// add new watchers
 	for service, _ := range services {
+		// Filter on watch options
+		// wo.Service: Only watch services we care about
+		if len(cw.wo.Service) > 0 && service != cw.wo.Service {
+			continue
+		}
+
 		if _, ok := cw.watchers[service]; ok {
 			continue
 		}

@@ -2,6 +2,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sync"
 	"time"
@@ -10,16 +11,17 @@ import (
 	"github.com/micro/go-micro/codec"
 	"github.com/micro/go-micro/errors"
 	"github.com/micro/go-micro/metadata"
+	"github.com/micro/go-micro/registry"
 	"github.com/micro/go-micro/selector"
 	"github.com/micro/go-micro/transport"
-
-	"golang.org/x/net/context"
+	"sync/atomic"
 )
 
 type rpcClient struct {
 	once sync.Once
 	opts Options
 	pool *pool
+	seq  uint64
 }
 
 func newRpcClient(opt ...Option) Client {
@@ -29,6 +31,7 @@ func newRpcClient(opt ...Option) Client {
 		once: sync.Once{},
 		opts: opts,
 		pool: newPool(opts.PoolSize, opts.PoolTTL),
+		seq:  0,
 	}
 
 	c := Client(rc)
@@ -87,11 +90,15 @@ func (r *rpcClient) call(ctx context.Context, address string, req Request, resp 
 		r.pool.release(address, c, grr)
 	}()
 
+	seq := r.seq
+	atomic.AddUint64(&r.seq, 1)
+
 	stream := &rpcStream{
 		context: ctx,
 		request: req,
 		closed:  make(chan bool),
 		codec:   newRpcPlusCodec(msg, c, cf),
+		seq:     seq,
 	}
 	defer stream.Close()
 
@@ -130,7 +137,7 @@ func (r *rpcClient) call(ctx context.Context, address string, req Request, resp 
 	}
 }
 
-func (r *rpcClient) stream(ctx context.Context, address string, req Request, opts CallOptions) (Streamer, error) {
+func (r *rpcClient) stream(ctx context.Context, address string, req Request, opts CallOptions) (Stream, error) {
 	msg := &transport.Message{
 		Header: make(map[string]string),
 	}
@@ -201,9 +208,12 @@ func (r *rpcClient) Init(opts ...Option) error {
 		o(&r.opts)
 	}
 
-	// recreate the pool if the options changed
+	// update pool configuration if the options changed
 	if size != r.opts.PoolSize || ttl != r.opts.PoolTTL {
-		r.pool = newPool(r.opts.PoolSize, r.opts.PoolTTL)
+		r.pool.Lock()
+		r.pool.size = r.opts.PoolSize
+		r.pool.ttl = int64(r.opts.PoolTTL.Seconds())
+		r.pool.Unlock()
 	}
 
 	return nil
@@ -213,13 +223,25 @@ func (r *rpcClient) Options() Options {
 	return r.opts
 }
 
-func (r *rpcClient) CallRemote(ctx context.Context, address string, request Request, response interface{}, opts ...CallOption) error {
-	// make a copy of call opts
-	callOpts := r.opts.CallOptions
-	for _, opt := range opts {
-		opt(&callOpts)
+func (r *rpcClient) next(request Request, opts CallOptions) (selector.Next, error) {
+	// return remote address
+	if len(opts.Address) > 0 {
+		return func() (*registry.Node, error) {
+			return &registry.Node{
+				Address: opts.Address,
+			}, nil
+		}, nil
 	}
-	return r.call(ctx, address, request, response, callOpts)
+
+	// get next nodes from the selector
+	next, err := r.opts.Selector.Select(request.Service(), opts.SelectOptions...)
+	if err != nil && err == selector.ErrNotFound {
+		return nil, errors.NotFound("go.micro.client", err.Error())
+	} else if err != nil {
+		return nil, errors.InternalServerError("go.micro.client", err.Error())
+	}
+
+	return next, nil
 }
 
 func (r *rpcClient) Call(ctx context.Context, request Request, response interface{}, opts ...CallOption) error {
@@ -229,12 +251,9 @@ func (r *rpcClient) Call(ctx context.Context, request Request, response interfac
 		opt(&callOpts)
 	}
 
-	// get next nodes from the selector
-	next, err := r.opts.Selector.Select(request.Service(), callOpts.SelectOptions...)
-	if err != nil && err == selector.ErrNotFound {
-		return errors.NotFound("go.micro.client", err.Error())
-	} else if err != nil {
-		return errors.InternalServerError("go.micro.client", err.Error())
+	next, err := r.next(request, callOpts)
+	if err != nil {
+		return err
 	}
 
 	// check if we already have a deadline
@@ -300,7 +319,7 @@ func (r *rpcClient) Call(ctx context.Context, request Request, response interfac
 	ch := make(chan error, callOpts.Retries)
 	var gerr error
 
-	for i := 0; i < callOpts.Retries; i++ {
+	for i := 0; i <= callOpts.Retries; i++ {
 		go func() {
 			ch <- call(i)
 		}()
@@ -330,28 +349,16 @@ func (r *rpcClient) Call(ctx context.Context, request Request, response interfac
 	return gerr
 }
 
-func (r *rpcClient) StreamRemote(ctx context.Context, address string, request Request, opts ...CallOption) (Streamer, error) {
-	// make a copy of call opts
-	callOpts := r.opts.CallOptions
-	for _, opt := range opts {
-		opt(&callOpts)
-	}
-	return r.stream(ctx, address, request, callOpts)
-}
-
-func (r *rpcClient) Stream(ctx context.Context, request Request, opts ...CallOption) (Streamer, error) {
+func (r *rpcClient) Stream(ctx context.Context, request Request, opts ...CallOption) (Stream, error) {
 	// make a copy of call opts
 	callOpts := r.opts.CallOptions
 	for _, opt := range opts {
 		opt(&callOpts)
 	}
 
-	// get next nodes from the selector
-	next, err := r.opts.Selector.Select(request.Service(), callOpts.SelectOptions...)
-	if err != nil && err == selector.ErrNotFound {
-		return nil, errors.NotFound("go.micro.client", err.Error())
-	} else if err != nil {
-		return nil, errors.InternalServerError("go.micro.client", err.Error())
+	next, err := r.next(request, callOpts)
+	if err != nil {
+		return nil, err
 	}
 
 	// check if we already have a deadline
@@ -373,7 +380,7 @@ func (r *rpcClient) Stream(ctx context.Context, request Request, opts ...CallOpt
 	default:
 	}
 
-	call := func(i int) (Streamer, error) {
+	call := func(i int) (Stream, error) {
 		// call backoff first. Someone may want an initial start delay
 		t, err := callOpts.Backoff(ctx, request, i)
 		if err != nil {
@@ -403,14 +410,14 @@ func (r *rpcClient) Stream(ctx context.Context, request Request, opts ...CallOpt
 	}
 
 	type response struct {
-		stream Streamer
+		stream Stream
 		err    error
 	}
 
 	ch := make(chan response, callOpts.Retries)
 	var grr error
 
-	for i := 0; i < callOpts.Retries; i++ {
+	for i := 0; i <= callOpts.Retries; i++ {
 		go func() {
 			s, err := call(i)
 			ch <- response{s, err}
@@ -441,49 +448,38 @@ func (r *rpcClient) Stream(ctx context.Context, request Request, opts ...CallOpt
 	return nil, grr
 }
 
-func (r *rpcClient) Publish(ctx context.Context, p Publication, opts ...PublishOption) error {
+func (r *rpcClient) Publish(ctx context.Context, msg Message, opts ...PublishOption) error {
 	md, ok := metadata.FromContext(ctx)
 	if !ok {
 		md = make(map[string]string)
 	}
-	md["Content-Type"] = p.ContentType()
+	md["Content-Type"] = msg.ContentType()
 
 	// encode message body
-	cf, err := r.newCodec(p.ContentType())
+	cf, err := r.newCodec(msg.ContentType())
 	if err != nil {
 		return errors.InternalServerError("go.micro.client", err.Error())
 	}
 	b := &buffer{bytes.NewBuffer(nil)}
-	if err := cf(b).Write(&codec.Message{Type: codec.Publication}, p.Message()); err != nil {
+	if err := cf(b).Write(&codec.Message{Type: codec.Publication}, msg.Payload()); err != nil {
 		return errors.InternalServerError("go.micro.client", err.Error())
 	}
 	r.once.Do(func() {
 		r.opts.Broker.Connect()
 	})
 
-	return r.opts.Broker.Publish(p.Topic(), &broker.Message{
+	return r.opts.Broker.Publish(msg.Topic(), &broker.Message{
 		Header: md,
 		Body:   b.Bytes(),
 	})
 }
 
-func (r *rpcClient) NewPublication(topic string, message interface{}) Publication {
-	return newRpcPublication(topic, message, r.opts.ContentType)
+func (r *rpcClient) NewMessage(topic string, message interface{}, opts ...MessageOption) Message {
+	return newMessage(topic, message, r.opts.ContentType, opts...)
 }
 
-func (r *rpcClient) NewProtoPublication(topic string, message interface{}) Publication {
-	return newRpcPublication(topic, message, "application/octet-stream")
-}
 func (r *rpcClient) NewRequest(service, method string, request interface{}, reqOpts ...RequestOption) Request {
-	return newRpcRequest(service, method, request, r.opts.ContentType, reqOpts...)
-}
-
-func (r *rpcClient) NewProtoRequest(service, method string, request interface{}, reqOpts ...RequestOption) Request {
-	return newRpcRequest(service, method, request, "application/octet-stream", reqOpts...)
-}
-
-func (r *rpcClient) NewJsonRequest(service, method string, request interface{}, reqOpts ...RequestOption) Request {
-	return newRpcRequest(service, method, request, "application/json", reqOpts...)
+	return newRequest(service, method, request, r.opts.ContentType, reqOpts...)
 }
 
 func (r *rpcClient) String() string {

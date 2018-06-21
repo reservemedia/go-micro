@@ -1,10 +1,10 @@
 package micro
 
 import (
+	"context"
 	"time"
 
 	"github.com/micro/go-micro/server"
-	"golang.org/x/net/context"
 )
 
 type function struct {
@@ -23,7 +23,7 @@ func fnHandlerWrapper(f Function) server.HandlerWrapper {
 
 func fnSubWrapper(f Function) server.SubscriberWrapper {
 	return func(s server.SubscriberFunc) server.SubscriberFunc {
-		return func(ctx context.Context, msg server.Publication) error {
+		return func(ctx context.Context, msg server.Message) error {
 			defer f.Done()
 			return s(ctx, msg)
 		}

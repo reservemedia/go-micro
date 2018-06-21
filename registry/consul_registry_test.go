@@ -41,7 +41,7 @@ func newMockServer(rg *mockRegistry, l net.Listener) error {
 }
 
 func newConsulTestRegistry(r *mockRegistry) (*consulRegistry, func()) {
-	l, err := net.Listen("tcp", ":0")
+	l, err := net.Listen("tcp", "localhost:0")
 	if err != nil {
 		// blurgh?!!
 		panic(err.Error())
@@ -104,7 +104,11 @@ func TestConsul_GetService_WithHealthyServiceNodes(t *testing.T) {
 	})
 	defer cl()
 
-	svc, _ := cr.GetService("service-name")
+	svc, err := cr.GetService("service-name")
+	if err != nil {
+		t.Fatal("Unexpected error", err)
+	}
+
 	if exp, act := 1, len(svc); exp != act {
 		t.Fatalf("Expected len of svc to be `%d`, got `%d`.", exp, act)
 	}
@@ -140,7 +144,11 @@ func TestConsul_GetService_WithUnhealthyServiceNode(t *testing.T) {
 	})
 	defer cl()
 
-	svc, _ := cr.GetService("service-name")
+	svc, err := cr.GetService("service-name")
+	if err != nil {
+		t.Fatal("Unexpected error", err)
+	}
+
 	if exp, act := 1, len(svc); exp != act {
 		t.Fatalf("Expected len of svc to be `%d`, got `%d`.", exp, act)
 	}
@@ -176,7 +184,11 @@ func TestConsul_GetService_WithUnhealthyServiceNodes(t *testing.T) {
 	})
 	defer cl()
 
-	svc, _ := cr.GetService("service-name")
+	svc, err := cr.GetService("service-name")
+	if err != nil {
+		t.Fatal("Unexpected error", err)
+	}
+
 	if exp, act := 1, len(svc); exp != act {
 		t.Fatalf("Expected len of svc to be `%d`, got `%d`.", exp, act)
 	}

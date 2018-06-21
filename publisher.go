@@ -1,8 +1,9 @@
 package micro
 
 import (
+	"context"
+
 	"github.com/micro/go-micro/client"
-	"golang.org/x/net/context"
 )
 
 type publisher struct {
@@ -11,5 +12,5 @@ type publisher struct {
 }
 
 func (p *publisher) Publish(ctx context.Context, msg interface{}, opts ...client.PublishOption) error {
-	return p.c.Publish(ctx, p.c.NewPublication(p.topic, msg))
+	return p.c.Publish(ctx, p.c.NewMessage(p.topic, msg))
 }

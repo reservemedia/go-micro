@@ -1,11 +1,10 @@
 package mock
 
 import (
+	"context"
 	"testing"
 
 	"github.com/micro/go-micro/errors"
-
-	"golang.org/x/net/context"
 )
 
 func TestClient(t *testing.T) {
@@ -17,12 +16,14 @@ func TestClient(t *testing.T) {
 		{Method: "Foo.Bar", Response: map[string]interface{}{"foo": "bar"}},
 		{Method: "Foo.Struct", Response: &TestResponse{Param: "aparam"}},
 		{Method: "Foo.Fail", Error: errors.InternalServerError("go.mock", "failed")},
+		{Method: "Foo.Func", Response: func() string {return "string"}},
+		{Method: "Foo.FuncStruct", Response: func() *TestResponse {return  &TestResponse{Param: "aparam"}}},
 	}
 
 	c := NewClient(Response("go.mock", response))
 
 	for _, r := range response {
-		req := c.NewJsonRequest("go.mock", r.Method, map[string]interface{}{"foo": "bar"})
+		req := c.NewRequest("go.mock", r.Method, map[string]interface{}{"foo": "bar"})
 		var rsp interface{}
 
 		err := c.Call(context.TODO(), req, &rsp)

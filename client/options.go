@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"time"
 
 	"github.com/micro/go-micro/broker"
@@ -8,8 +9,6 @@ import (
 	"github.com/micro/go-micro/registry"
 	"github.com/micro/go-micro/selector"
 	"github.com/micro/go-micro/transport"
-
-	"golang.org/x/net/context"
 )
 
 type Options struct {
@@ -41,6 +40,8 @@ type Options struct {
 type CallOptions struct {
 	SelectOptions []selector.SelectOption
 
+	// Address of remote host
+	Address string
 	// Backoff func
 	Backoff BackoffFunc
 	// Check if retriable func
@@ -68,8 +69,13 @@ type PublishOptions struct {
 	Context context.Context
 }
 
+type MessageOptions struct {
+	ContentType string
+}
+
 type RequestOptions struct {
-	Stream bool
+	ContentType string
+	Stream      bool
 
 	// Other options for implementations of the interface
 	// can be stored in a context
@@ -236,6 +242,13 @@ func DialProxy(addr string) Option {
 
 // Call Options
 
+// WithAddress sets the remote address to use rather than using service discovery
+func WithAddress(a string) CallOption {
+	return func(o *CallOptions) {
+		o.Address = a
+	}
+}
+
 func WithSelectOption(so ...selector.SelectOption) CallOption {
 	return func(o *CallOptions) {
 		o.SelectOptions = append(o.SelectOptions, so...)
@@ -298,6 +311,12 @@ func WithDialProxy(addr string) CallOption {
 }
 
 // Request Options
+
+func WithContentType(ct string) RequestOption {
+	return func(o *RequestOptions) {
+		o.ContentType = ct
+	}
+}
 
 func StreamingRequest() RequestOption {
 	return func(o *RequestOptions) {

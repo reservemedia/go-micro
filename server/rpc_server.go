@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"runtime/debug"
 	"sort"
@@ -16,9 +17,7 @@ import (
 	"github.com/micro/go-micro/registry"
 	"github.com/micro/go-micro/transport"
 
-	"github.com/micro/misc/lib/addr"
-
-	"golang.org/x/net/context"
+	"github.com/micro/util/go/lib/addr"
 )
 
 type rpcServer struct {
@@ -67,6 +66,9 @@ func (s *rpcServer) accept(sock transport.Socket) {
 			return
 		}
 
+		// add to wait group
+		s.wg.Add(1)
+
 		// we use this Timeout header to set a server deadline
 		to := msg.Header["Timeout"]
 		// we use this Content-Type header to identify the codec needed
@@ -81,6 +83,7 @@ func (s *rpcServer) accept(sock transport.Socket) {
 				},
 				Body: []byte(err.Error()),
 			})
+			s.wg.Done()
 			return
 		}
 
@@ -103,15 +106,13 @@ func (s *rpcServer) accept(sock transport.Socket) {
 			}
 		}
 
-		// add to wait group
-		s.wg.Add(1)
-		defer s.wg.Done()
-
 		// TODO: needs better error handling
 		if err := s.rpc.serveRequest(ctx, codec, ct); err != nil {
+			s.wg.Done()
 			log.Logf("Unexpected error serving request, closing socket: %v", err)
 			return
 		}
+		s.wg.Done()
 	}
 }
 
@@ -182,12 +183,12 @@ func (s *rpcServer) Subscribe(sb Subscriber) error {
 	}
 
 	s.Lock()
+	defer s.Unlock()
 	_, ok = s.subscribers[sub]
 	if ok {
 		return fmt.Errorf("subscriber %v already exists", s)
 	}
 	s.subscribers[sub] = nil
-	s.Unlock()
 	return nil
 }
 
@@ -387,6 +388,8 @@ func (s *rpcServer) Start() error {
 
 	log.Logf("Listening on %s", ts.Addr())
 	s.Lock()
+	// swap address
+	addr := s.opts.Address
 	s.opts.Address = ts.Addr()
 	s.Unlock()
 
@@ -406,6 +409,11 @@ func (s *rpcServer) Start() error {
 
 		// disconnect the broker
 		config.Broker.Disconnect()
+
+		s.Lock()
+		// swap back address
+		s.opts.Address = addr
+		s.Unlock()
 	}()
 
 	// TODO: subscribe to cruft

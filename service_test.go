@@ -1,13 +1,12 @@
 package micro
 
 import (
+	"context"
 	"sync"
 	"testing"
 
 	"github.com/micro/go-micro/registry/mock"
 	proto "github.com/micro/go-micro/server/debug/proto"
-
-	"golang.org/x/net/context"
 )
 
 func TestService(t *testing.T) {
@@ -31,9 +30,7 @@ func TestService(t *testing.T) {
 	// we can't test service.Init as it parses the command line
 	// service.Init()
 
-	// register handler
-	// do that later
-
+	// run service
 	go func() {
 		// wait for start
 		wg.Wait()
@@ -60,6 +57,7 @@ func TestService(t *testing.T) {
 		cancel()
 	}()
 
-	// run service
-	service.Run()
+	if err := service.Run(); err != nil {
+		t.Fatal(err)
+	}
 }

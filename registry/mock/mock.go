@@ -87,12 +87,20 @@ func (m *mockRegistry) Deregister(s *registry.Service) error {
 	return nil
 }
 
-func (m *mockRegistry) Watch() (registry.Watcher, error) {
-	return &mockWatcher{exit: make(chan bool)}, nil
+func (m *mockRegistry) Watch(opts ...registry.WatchOption) (registry.Watcher, error) {
+	var wopts registry.WatchOptions
+	for _, o := range opts {
+		o(&wopts)
+	}
+	return &mockWatcher{exit: make(chan bool), opts: wopts}, nil
 }
 
 func (m *mockRegistry) String() string {
 	return "mock"
+}
+
+func (m *mockRegistry) Options() registry.Options {
+	return registry.Options{}
 }
 
 func NewRegistry() registry.Registry {

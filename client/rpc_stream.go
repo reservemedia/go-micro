@@ -1,10 +1,9 @@
 package client
 
 import (
+	"context"
 	"io"
 	"sync"
-
-	"golang.org/x/net/context"
 )
 
 // Implements the streamer interface
@@ -45,7 +44,6 @@ func (r *rpcStream) Send(msg interface{}) error {
 	}
 
 	seq := r.seq
-	r.seq++
 
 	req := request{
 		Service:       r.request.Service(),

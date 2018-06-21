@@ -2,14 +2,15 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/micro/go-micro/broker"
 	"github.com/micro/go-micro/codec"
 	"github.com/micro/go-micro/metadata"
 	"github.com/micro/go-micro/registry"
-	"golang.org/x/net/context"
 )
 
 const (
@@ -176,6 +177,8 @@ func (s *rpcServer) createSubHandler(sb *subscriber, opts Options) broker.Handle
 		delete(hdr, "Content-Type")
 		ctx := metadata.NewContext(context.Background(), hdr)
 
+		results := make(chan error, len(sb.handlers))
+
 		for i := 0; i < len(sb.handlers); i++ {
 			handler := sb.handlers[i]
 
@@ -204,7 +207,7 @@ func (s *rpcServer) createSubHandler(sb *subscriber, opts Options) broker.Handle
 				return err
 			}
 
-			fn := func(ctx context.Context, msg Publication) error {
+			fn := func(ctx context.Context, msg Message) error {
 				var vals []reflect.Value
 				if sb.typ.Kind() != reflect.Func {
 					vals = append(vals, sb.rcvr)
@@ -213,7 +216,7 @@ func (s *rpcServer) createSubHandler(sb *subscriber, opts Options) broker.Handle
 					vals = append(vals, reflect.ValueOf(ctx))
 				}
 
-				vals = append(vals, reflect.ValueOf(msg.Message()))
+				vals = append(vals, reflect.ValueOf(msg.Payload()))
 
 				returnValues := handler.method.Call(vals)
 				if err := returnValues[0].Interface(); err != nil {
@@ -229,13 +232,26 @@ func (s *rpcServer) createSubHandler(sb *subscriber, opts Options) broker.Handle
 			s.wg.Add(1)
 			go func() {
 				defer s.wg.Done()
-				fn(ctx, &rpcPublication{
+				results <- fn(ctx, &rpcMessage{
 					topic:       sb.topic,
 					contentType: ct,
-					message:     req.Interface(),
+					payload:     req.Interface(),
 				})
 			}()
 		}
+
+		var errors []string
+
+		for i := 0; i < len(sb.handlers); i++ {
+			if err := <-results; err != nil {
+				errors = append(errors, err.Error())
+			}
+		}
+
+		if len(errors) > 0 {
+			return fmt.Errorf("subscriber error: %s", strings.Join(errors, "\n"))
+		}
+
 		return nil
 	}
 }
